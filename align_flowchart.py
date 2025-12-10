@@ -6,7 +6,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--debug", action="store_true")
 args = parser.parse_args()
 
-text_raw = sys.stdin.read()
+# text_raw = sys.stdin.read()
+text_raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")    #强制用 utf-8 解码文件
 lines = text_raw.splitlines()
 
 if args.debug:
@@ -20,7 +21,8 @@ if args.debug:
 # ---------------------------------------
 info = []
 for idx, line in enumerate(lines):
-    m = re.match(r"(\s*)([│|])", line)
+    m = re.match(r"(\s*)([│])", line)
+    # print([hex(ord(c)) for c in line])
     if m:
         indent = len(m.group(1))
         info.append((idx, line, indent))
