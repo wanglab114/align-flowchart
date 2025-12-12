@@ -146,22 +146,41 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=2, col
     
     return None, None, None
 
-# 为每个含竖线的行，为每个竖线找到目标位置
-# targets: {line_idx: [(char_idx, display_pos, target_col, distance, source), ...]}
-targets = {}
-for line_idx, line, pipe_positions in pipe_lines:
-    line_targets = []
-    for char_idx, display_pos in pipe_positions:
-        target_col, distance, source = find_nearest_corner(line_idx, display_pos, lines)
-        if target_col is not None:
-            line_targets.append((char_idx, display_pos, target_col, distance, source))
-            if args.debug:
-                print(f"Line {line_idx+1}: │ at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col} (from {source}, distance={distance})")
-        else:
-            if args.debug:
-                print(f"Line {line_idx+1}: │ at char_idx {char_idx} (display_col {display_pos}) -> no ┐/┌ found")
-    if line_targets:
-        targets[line_idx] = line_targets
+def find_targets_for_all_lines(lines):
+    """
+    为所有含竖线的行找到目标位置
+    返回: targets = {line_idx: [(char_idx, display_pos, target_col, distance, source), ...]}
+    """
+    # 重新查找所有含文字和竖线的行
+    current_pipe_lines = []
+    for idx, line in enumerate(lines):
+        if has_text_and_pipe(line):
+            pipe_positions = find_all_pipes(line)
+            if pipe_positions:
+                current_pipe_lines.append((idx, line, pipe_positions))
+    
+    # 为每个含竖线的行，为每个竖线找到目标位置
+    targets = {}
+    for line_idx, line, pipe_positions in current_pipe_lines:
+        line_targets = []
+        for char_idx, display_pos in pipe_positions:
+            target_col, distance, source = find_nearest_corner(line_idx, display_pos, lines)
+            if target_col is not None:
+                line_targets.append((char_idx, display_pos, target_col, distance, source))
+                if args.debug:
+                    print(f"Line {line_idx+1}: │ at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col} (from {source}, distance={distance})")
+            else:
+                if args.debug:
+                    print(f"Line {line_idx+1}: │ at char_idx {char_idx} (display_col {display_pos}) -> no ┐/┌ found")
+        if line_targets:
+            targets[line_idx] = line_targets
+    
+    return targets
+
+# 初始查找目标位置
+if args.debug:
+    print("====== INITIAL TARGET FINDING ======")
+targets = find_targets_for_all_lines(lines)
 
 if args.debug:
     print()
@@ -207,54 +226,100 @@ def adjust_line_for_pipe(line, char_idx, display_diff):
         
         return new_line, display_diff  # display_diff是负数，表示向左移动
 
-aligned = []
-for idx, line in enumerate(lines):
-    if idx not in targets:
-        # 不含竖线或找不到目标，直接保留
-        aligned.append(line)
-        continue
-    
-    # 获取该行所有需要调整的竖线信息
-    # 按位置从左到右排序，只处理第一个（最左边）错位的竖线
-    line_targets = sorted(targets[idx], key=lambda x: x[0])  # 从左到右排序
-    
+def align_lines_one_round(lines, targets, round_num=1):
+    """
+    执行一轮对齐：处理每行第一个错位的竖线
+    返回: (aligned_lines, has_changes)
+    """
     if args.debug:
-        print(f"[Line {idx+1}] original: {repr(line)}")
-        print(f"  Found {len(line_targets)} pipes, will find the first misaligned one")
+        print(f"\n====== ALIGNMENT ROUND {round_num} ======")
     
-    if not line_targets:
-        aligned.append(line)
-        continue
+    aligned = []
+    has_changes = False
     
-    # 找到第一个（最左边的）需要调整的竖线（display_pos != target_col）
-    first_misaligned = None
-    for target in line_targets:
-        char_idx, display_pos, target_col, distance, source = target
-        if display_pos != target_col:
-            first_misaligned = target
-            break
+    for idx, line in enumerate(lines):
+        if idx not in targets:
+            # 不含竖线或找不到目标，直接保留
+            aligned.append(line)
+            continue
+        
+        # 获取该行所有需要调整的竖线信息
+        # 按位置从左到右排序，只处理第一个（最左边）错位的竖线
+        line_targets = sorted(targets[idx], key=lambda x: x[0])  # 从左到右排序
+        
+        if args.debug:
+            print(f"[Line {idx+1}] original: {repr(line)}")
+            print(f"  Found {len(line_targets)} pipes, will find the first misaligned one")
+        
+        if not line_targets:
+            aligned.append(line)
+            continue
+        
+        # 找到第一个（最左边的）需要调整的竖线（display_pos != target_col）
+        first_misaligned = None
+        for target in line_targets:
+            char_idx, display_pos, target_col, distance, source = target
+            if display_pos != target_col:
+                first_misaligned = target
+                break
+        
+        # 如果没有找到需要调整的竖线，说明都已对齐，直接保留原行
+        if first_misaligned is None:
+            aligned.append(line)
+            continue
+        
+        # 找到需要调整的竖线，标记有变化
+        has_changes = True
+        
+        char_idx, display_pos, target_col, distance, source = first_misaligned
+        
+        # 计算需要调整的显示位置差值
+        display_diff = target_col - display_pos
+        
+        if args.debug:
+            print(f"  First misaligned pipe at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col}")
+            print(f"    needed delta: {display_diff}")
+        
+        # 只调整第一个竖线，后续竖线会因为这次调整而相应变化
+        current_line, offset = adjust_line_for_pipe(line, char_idx, display_diff)
+        
+        if args.debug:
+            print(f"  aligned: {repr(current_line)}\n")
+        
+        aligned.append(current_line)
     
-    # 如果没有找到需要调整的竖线，说明都已对齐，直接保留原行
-    if first_misaligned is None:
-        aligned.append(line)
-        continue
+    return aligned, has_changes
+
+# ---------------------------------------
+# Step 3: 迭代对齐所有含竖线的行
+# ---------------------------------------
+aligned = lines
+max_iterations = 10  # 最大迭代次数，防止无限循环
+iteration = 0
+has_changes = True
+
+while has_changes and iteration < max_iterations:
+    iteration += 1
     
-    char_idx, display_pos, target_col, distance, source = first_misaligned
+    # 基于当前对齐结果，重新查找目标位置
+    if iteration > 1:
+        if args.debug:
+            print(f"\n====== RE-FINDING TARGETS (Round {iteration}) ======")
+        targets = find_targets_for_all_lines(aligned)
+        if args.debug:
+            print()
     
-    # 计算需要调整的显示位置差值
-    display_diff = target_col - display_pos
+    # 执行一轮对齐
+    aligned, has_changes = align_lines_one_round(aligned, targets, iteration)
     
+    if not has_changes:
+        if args.debug:
+            print(f"\n所有竖线已对齐，共执行 {iteration} 轮调整。")
+        break
+
+if iteration >= max_iterations and has_changes:
     if args.debug:
-        print(f"  First pipe at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col}")
-        print(f"    needed delta: {display_diff}")
-    
-    # 只调整第一个竖线，后续竖线会因为这次调整而相应变化
-    current_line, offset = adjust_line_for_pipe(line, char_idx, display_diff)
-    
-    if args.debug:
-        print(f"  aligned: {repr(current_line)}\n")
-    
-    aligned.append(current_line)
+        print(f"\n警告: 达到最大迭代次数 {max_iterations}，可能仍有未对齐的竖线。")
 
 # ---------------------------------------
 # Step 4: 输出最终结果
