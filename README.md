@@ -85,7 +85,7 @@ python align_flowchart.py --input "C:\Users\wanglb\Desktop\new 10.txt" --output 
 
 ### NotePad++ 宏调用
 
-cmd /c C:\Users\wanglb\AppData\Local\Programs\Python\Python38-32\python "C:\git\TOOL\align_flowchart\align_flowchart.py" < "$(FULL_CURRENT_PATH)" > "%TEMP%\aligned.txt" 
+cmd /c C:\Users\wanglb\AppData\Local\Programs\Python\Python38-32\python  -X utf8  "C:\git\TOOL\align-flowchart\align_flowchart.py" < "$(FULL_CURRENT_PATH)" > "%TEMP%\aligned.txt" 
 cmd /c copy /Y "%TEMP%\aligned.txt" "$(FULL_CURRENT_PATH)"
 
 ## 工作原理
