@@ -155,7 +155,7 @@ if args.debug:
 # ---------------------------------------
 # Step 2: 为每个含竖线的行找到最近的┐或┌位置
 # ---------------------------------------
-def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col_range=3, search_chars='┐┌'):
+def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=8, col_range=5, search_chars='┐┌'):
     """
     查找与竖线或下角标字符最近的角字符位置（考虑显示位置）
     pipe_display_col: 竖线或下角标字符的显示位置
