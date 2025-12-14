@@ -169,9 +169,8 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col
     best_line_idx = None
     best_char_idx = None
     
-    # 在上下行查找
+    # 在Top line中查找
     for row_offset in range(1, row_range + 1):
-        # 检查上行
         if pipe_line_idx - row_offset >= 0:
             check_line_idx = pipe_line_idx - row_offset
             check_line = lines[check_line_idx]
@@ -193,28 +192,6 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col
                             best_line_idx = check_line_idx
                             best_char_idx = char_idx
         
-        # 检查下行
-        if pipe_line_idx + row_offset < len(lines):
-            check_line_idx = pipe_line_idx + row_offset
-            check_line = lines[check_line_idx]
-            # 查找该行中所有目标角字符，计算它们的显示位置
-            for char_idx, char in enumerate(check_line):
-                if char in search_chars:
-                    # 计算该字符的显示位置
-                    amount_of_wide_chars = count_wide_chars(check_line[:char_idx])
-                    display_col = char_idx + amount_of_wide_chars
-                    # 检查是否在范围内
-                    col_diff = display_col - pipe_display_col
-                    if abs(col_diff) <= col_range:
-                        # 计算距离：优先考虑列距离
-                        distance = abs(col_diff) + row_offset * 0.5
-                        if distance < best_distance:
-                            best_distance = distance
-                            best_pos = display_col  # 返回显示位置
-                            best_source = f'below_{row_offset}'
-                            best_line_idx = check_line_idx
-                            best_char_idx = char_idx
-    
     if best_pos is not None:
         return best_pos, best_distance, best_source, best_line_idx, best_char_idx
     
