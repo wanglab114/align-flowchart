@@ -145,16 +145,20 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col
     查找与竖线最近的┐或┌的位置（考虑显示位置）
     pipe_display_col: 竖线的显示位置
     在上下行（row_range行内）和左右列（col_range列内）范围内查找最近的┐或┌
+    返回: (target_display_col, distance, source, target_line_idx, target_char_idx)
     """
     best_pos = None
     best_distance = float('inf')
     best_source = None
+    best_line_idx = None
+    best_char_idx = None
     
     # 在上下行查找
     for row_offset in range(1, row_range + 1):
         # 检查上行
         if pipe_line_idx - row_offset >= 0:
-            check_line = lines[pipe_line_idx - row_offset]
+            check_line_idx = pipe_line_idx - row_offset
+            check_line = lines[check_line_idx]
             # 查找该行中所有┐或┌，计算它们的显示位置
             for char_idx, char in enumerate(check_line):
                 if char in '┐┌':
@@ -170,10 +174,13 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col
                             best_distance = distance
                             best_pos = display_col  # 返回显示位置
                             best_source = f'above_{row_offset}'
+                            best_line_idx = check_line_idx
+                            best_char_idx = char_idx
         
         # 检查下行
         if pipe_line_idx + row_offset < len(lines):
-            check_line = lines[pipe_line_idx + row_offset]
+            check_line_idx = pipe_line_idx + row_offset
+            check_line = lines[check_line_idx]
             # 查找该行中所有┐或┌，计算它们的显示位置
             for char_idx, char in enumerate(check_line):
                 if char in '┐┌':
@@ -189,11 +196,13 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col
                             best_distance = distance
                             best_pos = display_col  # 返回显示位置
                             best_source = f'below_{row_offset}'
+                            best_line_idx = check_line_idx
+                            best_char_idx = char_idx
     
     if best_pos is not None:
-        return best_pos, best_distance, best_source
+        return best_pos, best_distance, best_source, best_line_idx, best_char_idx
     
-    return None, None, None
+    return None, None, None, None, None
 
 def find_targets_for_all_lines(lines):
     """
@@ -213,9 +222,9 @@ def find_targets_for_all_lines(lines):
     for line_idx, line, pipe_positions in current_pipe_lines:
         line_targets = []
         for char_idx, display_pos in pipe_positions:
-            target_col, distance, source = find_nearest_corner(line_idx, display_pos, lines)
+            target_col, distance, source, target_line_idx, target_char_idx = find_nearest_corner(line_idx, display_pos, lines)
             if target_col is not None:
-                line_targets.append((char_idx, display_pos, target_col, distance, source))
+                line_targets.append((char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx))
                 if args.debug:
                     print(f"Line {line_idx+1}: │ at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col} (from {source}, distance={distance})")
             else:
@@ -260,20 +269,31 @@ def adjust_line_for_pipe(line, char_idx, display_diff):
         
         # 保留行首的连续空格（缩进）
         leading_spaces = len(before_pipe) - len(before_pipe.lstrip())
-        non_space_part = before_pipe[leading_spaces:]
+        content_after_indent = before_pipe[leading_spaces:]
         
-        # 优先删除非空格字符，如果不够再删除空格
-        if chars_to_remove <= len(non_space_part):
-            # 只删除非空格字符（从右向左）
-            new_non_space = non_space_part[:-chars_to_remove] if chars_to_remove < len(non_space_part) else ""
-            new_line = " " * leading_spaces + new_non_space + line[char_idx:]
+        # 计算竖线前紧邻的空格数量（从右向左查找）
+        trailing_spaces = 0
+        for char in reversed(content_after_indent):
+            if char == ' ':
+                trailing_spaces += 1
+            else:
+                break
+        
+        # 优先删除竖线前的空格
+        if chars_to_remove <= trailing_spaces:
+            # 有足够的空格可以删除
+            spaces_to_keep = trailing_spaces - chars_to_remove
+            # 保留行首缩进 + 内容（去掉末尾的空格）+ 保留的空格 + 竖线及之后的内容
+            content_without_trailing = content_after_indent[:-trailing_spaces] if trailing_spaces > 0 else content_after_indent
+            new_line = " " * leading_spaces + content_without_trailing + " " * spaces_to_keep + line[char_idx:]
+            return new_line, display_diff
         else:
-            # 需要删除所有非空格字符和部分空格
-            remaining = chars_to_remove - len(non_space_part)
-            new_spaces = max(0, leading_spaces - remaining)
-            new_line = " " * new_spaces + line[char_idx:]
-        
-        return new_line, display_diff  # display_diff是负数，表示向左移动
+            # 竖线前的空格不够，无法通过删除空格对齐
+            # 这种情况下，不调整该行，让下一轮迭代时重新查找目标位置
+            # 返回原行和0偏移，表示未进行任何调整
+            if args.debug:
+                print(f"    Warning: Not enough spaces before pipe (need {chars_to_remove}, have {trailing_spaces}), skipping adjustment")
+            return line, 0
 
 def align_lines_one_round(lines, targets, round_num=1):
     """
@@ -307,7 +327,7 @@ def align_lines_one_round(lines, targets, round_num=1):
         # 找到第一个（最左边的）需要调整的竖线（display_pos != target_col）
         first_misaligned = None
         for target in line_targets:
-            char_idx, display_pos, target_col, distance, source = target
+            char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx = target
             if display_pos != target_col:
                 first_misaligned = target
                 break
@@ -320,7 +340,7 @@ def align_lines_one_round(lines, targets, round_num=1):
         # 找到需要调整的竖线，标记有变化
         has_changes = True
         
-        char_idx, display_pos, target_col, distance, source = first_misaligned
+        char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx = first_misaligned
         
         # 计算需要调整的显示位置差值
         display_diff = target_col - display_pos
@@ -331,6 +351,40 @@ def align_lines_one_round(lines, targets, round_num=1):
         
         # 只调整第一个竖线，后续竖线会因为这次调整而相应变化
         current_line, offset = adjust_line_for_pipe(line, char_idx, display_diff)
+        
+        # 检查行是否真的改变了
+        if current_line == line and display_diff < 0:
+            # 竖线偏右且没有足够的空格可删，尝试将目标位置右移
+            # 在目标角字符所在的行插入空格
+            if target_line_idx is not None and target_char_idx is not None:
+                # 获取目标行的当前状态
+                if target_line_idx < len(aligned):
+                    target_line = aligned[target_line_idx]
+                else:
+                    target_line = lines[target_line_idx]
+                
+                spaces_to_insert = -display_diff  # 需要右移的距离
+                # 在目标角字符前插入"━"
+                new_target_line = target_line[:target_char_idx] + "─" * spaces_to_insert + target_line[target_char_idx:]
+                
+                if target_line_idx < len(aligned):
+                    # 目标行已经处理过，直接更新 aligned
+                    aligned[target_line_idx] = new_target_line
+                else:
+                    # 目标行还没有处理，更新 lines 以便后续处理时使用
+                    lines[target_line_idx] = new_target_line
+                
+                if args.debug:
+                    print(f"    Adjusted target corner position by inserting {spaces_to_insert} spaces")
+                    print(f"    Target line {target_line_idx+1} updated: {repr(new_target_line)}")
+            else:
+                # 无法调整目标位置，跳过这一行
+                if args.debug:
+                    print(f"    Cannot adjust target position (target_line_idx={target_line_idx}), skipping this line")
+                has_changes = False
+        elif current_line == line:
+            # 行没有改变，不标记为有变化
+            has_changes = False
         
         if args.debug:
             print(f"  aligned: {repr(current_line)}\n")
