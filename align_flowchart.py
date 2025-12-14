@@ -4,8 +4,8 @@ import os
 
 import argparse
 parser = argparse.ArgumentParser(description="对齐流程图中的竖线")
-parser.add_argument("--input", "-i", type=str, default=r"C:\Users\wanglb\Desktop\new 10.txt",
-                    help="输入文件路径（默认: C:\\Users\\wanglb\\Desktop\\new 10.txt）")
+parser.add_argument("--input", "-i", type=str, default=r"C:\Users\wanglb\Desktop\new 13.txt",
+                    help="输入文件路径（默认: C:\\Users\\wanglb\\Desktop\\new 11.txt）")
 parser.add_argument("--output", "-o", type=str, default=None,
                     help="输出文件路径（默认: 输出到标准输出）")
 parser.add_argument("--debug", action="store_true", help="显示调试信息")
@@ -91,7 +91,7 @@ if args.debug:
 # ---------------------------------------
 # Step 2: 为每个含竖线的行找到最近的┐或┌位置
 # ---------------------------------------
-def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=2, col_range=2):
+def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=4, col_range=3):
     """
     查找与竖线最近的┐或┌的位置（考虑显示位置）
     pipe_display_col: 竖线的显示位置
