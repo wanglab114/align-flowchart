@@ -1,6 +1,7 @@
 import re
 import sys
 import os
+import unicodedata
 
 import argparse
 parser = argparse.ArgumentParser(description="对齐流程图中的竖线")
@@ -35,6 +36,43 @@ if args.debug:
 # ---------------------------------------
 # Step 1: 查找所有含文字和竖线的行，记录所有竖线的位置
 # ---------------------------------------
+def is_wide_char(char):
+    """
+    判断字符是否占两个字符位置（全角字符）
+    包括：汉字、中文标点、全角字母数字符号等
+    """
+    # 使用 unicodedata 的 east_asian_width 属性判断
+    # 'W' (Wide) 和 'F' (Fullwidth) 表示占两个位置
+    width = unicodedata.east_asian_width(char)
+    if width in ('W', 'F'):
+        return True
+    
+    # 补充一些特殊情况：CJK符号和标点等
+    code = ord(char)
+    if (
+        # CJK符号和标点
+        (0x3000 <= code <= 0x303F) or
+        # 平假名
+        (0x3040 <= code <= 0x309F) or
+        # 片假名
+        (0x30A0 <= code <= 0x30FF) or
+        # CJK统一汉字
+        (0x4E00 <= code <= 0x9FFF) or
+        # CJK扩展A
+        (0x3400 <= code <= 0x4DBF) or
+        # 全角字符块
+        (0xFF00 <= code <= 0xFFEF)
+    ):
+        return True
+    
+    return False
+
+def count_wide_chars(text):
+    """
+    计算文本中占两个字符位置的字符数量
+    """
+    return sum(1 for c in text if is_wide_char(c))
+
 def has_text_and_pipe(line):
     """检查行是否含有文字和竖线"""
     has_text = bool(re.search(r'[^\s│┐┌└┘├┤┬┴╭╮╰╯]', line))  # 有非空白、非框线字符
@@ -43,16 +81,16 @@ def has_text_and_pipe(line):
 
 def find_all_pipes(line):
     """
-    找到行中所有竖线的位置（考虑汉字占2个字符位置）
+    找到行中所有竖线的位置（考虑包括汉字在内的全角字符占2个字符位置）
     返回: [(字符索引, 显示位置), ...]
     """
     positions = []
     for i, char in enumerate(line):
         if char == '│':
-            # 计算0到i之间的汉字数量
-            amount_of_chinese = sum(1 for c in line[:i] if '\u4e00' <= c <= '\u9fff')
-            # 实际显示位置 = 字符索引 - 前面汉字的数量
-            actual_pos = i + amount_of_chinese
+            # 计算0到i之间占两个位置的字符数量
+            amount_of_wide_chars = count_wide_chars(line[:i])
+            # 实际显示位置 = 字符索引 + 前面全角字符的数量
+            actual_pos = i + amount_of_wide_chars
             positions.append((i, actual_pos))  # (字符索引, 显示位置)
     return positions
 
@@ -91,7 +129,7 @@ if args.debug:
 # ---------------------------------------
 # Step 2: 为每个含竖线的行找到最近的┐或┌位置
 # ---------------------------------------
-def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=4, col_range=3):
+def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col_range=3):
     """
     查找与竖线最近的┐或┌的位置（考虑显示位置）
     pipe_display_col: 竖线的显示位置
@@ -110,8 +148,8 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=4, col
             for char_idx, char in enumerate(check_line):
                 if char in '┐┌':
                     # 计算该字符的显示位置
-                    amount_of_chinese = sum(1 for c in check_line[:char_idx] if '\u4e00' <= c <= '\u9fff')
-                    display_col = char_idx - amount_of_chinese
+                    amount_of_wide_chars = count_wide_chars(check_line[:char_idx])
+                    display_col = char_idx + amount_of_wide_chars
                     # 检查是否在范围内
                     col_diff = display_col - pipe_display_col
                     if abs(col_diff) <= col_range:
@@ -129,8 +167,8 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=4, col
             for char_idx, char in enumerate(check_line):
                 if char in '┐┌':
                     # 计算该字符的显示位置
-                    amount_of_chinese = sum(1 for c in check_line[:char_idx] if '\u4e00' <= c <= '\u9fff')
-                    display_col = char_idx - amount_of_chinese
+                    amount_of_wide_chars = count_wide_chars(check_line[:char_idx])
+                    display_col = char_idx + amount_of_wide_chars
                     # 检查是否在范围内
                     col_diff = display_col - pipe_display_col
                     if abs(col_diff) <= col_range:
