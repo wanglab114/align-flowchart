@@ -5,25 +5,36 @@ import unicodedata
 
 import argparse
 parser = argparse.ArgumentParser(description="对齐流程图中的竖线")
-parser.add_argument("--input", "-i", type=str, default=r"C:\Users\wanglb\Desktop\new 13.txt",
-                    help="输入文件路径（默认: C:\\Users\\wanglb\\Desktop\\new 11.txt）")
+parser.add_argument("--input", "-i", type=str, default=None,
+                    help="输入文件路径（使用 '-' 或留空表示从标准输入读取）")
 parser.add_argument("--output", "-o", type=str, default=None,
                     help="输出文件路径（默认: 输出到标准输出）")
 parser.add_argument("--debug", action="store_true", help="显示调试信息")
 args = parser.parse_args()
 
-# 从文件读取输入
-input_file = args.input
-if not os.path.exists(input_file):
-    print(f"错误: 文件不存在: {input_file}", file=sys.stderr)
-    sys.exit(1)
-
-try:
-    with open(input_file, 'r', encoding='utf-8', errors='replace') as f:
-        text_raw = f.read()
-except Exception as e:
-    print(f"错误: 无法读取文件 {input_file}: {e}", file=sys.stderr)
-    sys.exit(1)
+# 从文件或标准输入读取输入
+if args.input is None or args.input == '-':
+    # 从标准输入读取
+    if args.debug:
+        print("从标准输入读取...", file=sys.stderr)
+    try:
+        text_raw = sys.stdin.read()
+    except Exception as e:
+        print(f"错误: 无法从标准输入读取: {e}", file=sys.stderr)
+        sys.exit(1)
+else:
+    # 从文件读取
+    input_file = args.input
+    if not os.path.exists(input_file):
+        print(f"错误: 文件不存在: {input_file}", file=sys.stderr)
+        sys.exit(1)
+    
+    try:
+        with open(input_file, 'r', encoding='utf-8', errors='replace') as f:
+            text_raw = f.read()
+    except Exception as e:
+        print(f"错误: 无法读取文件 {input_file}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 lines = text_raw.splitlines()
 
