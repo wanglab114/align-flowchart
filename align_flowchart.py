@@ -5,7 +5,7 @@ import unicodedata
 
 import argparse
 parser = argparse.ArgumentParser(description="对齐流程图中的竖线")
-parser.add_argument("--input", "-i", type=str, default=None,
+parser.add_argument("--input", "-i", type=str, default=r"C:\Users\wanglb\Desktop\new 11.txt",
                     help="输入文件路径（使用 '-' 或留空表示从标准输入读取）")
 parser.add_argument("--output", "-o", type=str, default=None,
                     help="输出文件路径（默认: 输出到标准输出）")
@@ -105,6 +105,21 @@ def find_all_pipes(line):
             positions.append((i, actual_pos))  # (字符索引, 显示位置)
     return positions
 
+def find_all_bottom_corners(line):
+    """
+    找到行中所有下角标字符"┘"的位置（考虑包括汉字在内的全角字符占2个字符位置）
+    返回: [(字符索引, 显示位置), ...]
+    """
+    positions = []
+    for i, char in enumerate(line):
+        if char == '┘':
+            # 计算0到i之间占两个位置的字符数量
+            amount_of_wide_chars = count_wide_chars(line[:i])
+            # 实际显示位置 = 字符索引 + 前面全角字符的数量
+            actual_pos = i + amount_of_wide_chars
+            positions.append((i, actual_pos))  # (字符索引, 显示位置)
+    return positions
+
 pipe_lines = []  # (line_idx, line, pipe_positions[]) where pipe_positions is [(char_idx, display_pos), ...]
 for idx, line in enumerate(lines):
     if has_text_and_pipe(line):
@@ -140,11 +155,12 @@ if args.debug:
 # ---------------------------------------
 # Step 2: 为每个含竖线的行找到最近的┐或┌位置
 # ---------------------------------------
-def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col_range=3):
+def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col_range=3, search_chars='┐┌'):
     """
-    查找与竖线最近的┐或┌的位置（考虑显示位置）
-    pipe_display_col: 竖线的显示位置
-    在上下行（row_range行内）和左右列（col_range列内）范围内查找最近的┐或┌
+    查找与竖线或下角标字符最近的角字符位置（考虑显示位置）
+    pipe_display_col: 竖线或下角标字符的显示位置
+    search_chars: 要查找的角字符，默认为'┐┌'（用于竖线），也可以是'┐┌'（用于┘）
+    在上下行（row_range行内）和左右列（col_range列内）范围内查找最近的角字符
     返回: (target_display_col, distance, source, target_line_idx, target_char_idx)
     """
     best_pos = None
@@ -159,9 +175,9 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col
         if pipe_line_idx - row_offset >= 0:
             check_line_idx = pipe_line_idx - row_offset
             check_line = lines[check_line_idx]
-            # 查找该行中所有┐或┌，计算它们的显示位置
+            # 查找该行中所有目标角字符，计算它们的显示位置
             for char_idx, char in enumerate(check_line):
-                if char in '┐┌':
+                if char in search_chars:
                     # 计算该字符的显示位置
                     amount_of_wide_chars = count_wide_chars(check_line[:char_idx])
                     display_col = char_idx + amount_of_wide_chars
@@ -181,9 +197,9 @@ def find_nearest_corner(pipe_line_idx, pipe_display_col, lines, row_range=6, col
         if pipe_line_idx + row_offset < len(lines):
             check_line_idx = pipe_line_idx + row_offset
             check_line = lines[check_line_idx]
-            # 查找该行中所有┐或┌，计算它们的显示位置
+            # 查找该行中所有目标角字符，计算它们的显示位置
             for char_idx, char in enumerate(check_line):
-                if char in '┐┌':
+                if char in search_chars:
                     # 计算该字符的显示位置
                     amount_of_wide_chars = count_wide_chars(check_line[:char_idx])
                     display_col = char_idx + amount_of_wide_chars
@@ -222,9 +238,9 @@ def find_targets_for_all_lines(lines):
     for line_idx, line, pipe_positions in current_pipe_lines:
         line_targets = []
         for char_idx, display_pos in pipe_positions:
-            target_col, distance, source, target_line_idx, target_char_idx = find_nearest_corner(line_idx, display_pos, lines)
+            target_col, distance, source, target_line_idx, target_char_idx = find_nearest_corner(line_idx, display_pos, lines, search_chars='┐┌')
             if target_col is not None:
-                line_targets.append((char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx))
+                line_targets.append((char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx, '│'))
                 if args.debug:
                     print(f"Line {line_idx+1}: │ at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col} (from {source}, distance={distance})")
             else:
@@ -232,6 +248,26 @@ def find_targets_for_all_lines(lines):
                     print(f"Line {line_idx+1}: │ at char_idx {char_idx} (display_col {display_pos}) -> no ┐/┌ found")
         if line_targets:
             targets[line_idx] = line_targets
+    
+    # 处理含下角标字符"┘"的行
+    for idx, line in enumerate(lines):
+        bottom_corner_positions = find_all_bottom_corners(line)
+        if bottom_corner_positions:
+            line_targets = []
+            for char_idx, display_pos in bottom_corner_positions:
+                # 为"┘"查找对应的"┐"或"┌"（通常在top_line中，向上查找）
+                target_col, distance, source, target_line_idx, target_char_idx = find_nearest_corner(idx, display_pos, lines, row_range=10, col_range=3, search_chars='┐┌')
+                if target_col is not None:
+                    line_targets.append((char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx, '┘'))
+                    if args.debug:
+                        print(f"Line {idx+1}: ┘ at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col} (from {source}, distance={distance})")
+                else:
+                    if args.debug:
+                        print(f"Line {idx+1}: ┘ at char_idx {char_idx} (display_pos {display_pos}) -> no ┐/┌ found")
+            if line_targets:
+                if idx not in targets:
+                    targets[idx] = []
+                targets[idx].extend(line_targets)
     
     return targets
 
@@ -247,6 +283,47 @@ if args.debug:
 # ---------------------------------------
 # Step 3: 对齐所有含竖线的行
 # ---------------------------------------
+def find_paired_corner_in_bottom_line(lines, top_line_idx, corner_char, corner_idx, max_search_range=10):
+    """
+    在对应的 bottom_line 中查找配对的角字符
+    top_line 中的 ┐ 配对 bottom_line 中的 ┘
+    top_line 中的 ┌ 配对 bottom_line 中的 └
+    返回: (bottom_line_idx, paired_corner_idx) 或 (None, None)
+    """
+    if corner_char == '┐':
+        paired_char = '┘'
+    elif corner_char == '┌':
+        paired_char = '└'
+    else:
+        return None, None
+    
+    # 从 top_line 向下查找对应的 bottom_line（包含配对角字符的行）
+    for offset in range(1, max_search_range + 1):
+        bottom_line_idx = top_line_idx + offset
+        if bottom_line_idx >= len(lines):
+            break
+        
+        bottom_line = lines[bottom_line_idx]
+        
+        # 在 bottom_line 中查找配对的角字符
+        # 应该在相同或相近的列位置查找
+        for i, char in enumerate(bottom_line):
+            if char == paired_char:
+                # 计算显示位置，检查是否与 top_line 中的角字符位置对应
+                amount_of_wide_chars = count_wide_chars(bottom_line[:i])
+                bottom_display_col = i + amount_of_wide_chars
+                
+                # 计算 top_line 中角字符的显示位置
+                top_line = lines[top_line_idx]
+                top_amount_of_wide_chars = count_wide_chars(top_line[:corner_idx])
+                top_display_col = corner_idx + top_amount_of_wide_chars
+                
+                # 如果显示位置相同或相近（允许1个字符的误差），认为是配对的
+                if abs(bottom_display_col - top_display_col) <= 1:
+                    return bottom_line_idx, i
+    
+    return None, None
+
 def adjust_line_for_pipe(line, char_idx, display_diff):
     """
     调整一行中的单个竖线位置
@@ -312,45 +389,61 @@ def align_lines_one_round(lines, targets, round_num=1):
             aligned.append(line)
             continue
         
-        # 获取该行所有需要调整的竖线信息
-        # 按位置从左到右排序，只处理第一个（最左边）错位的竖线
+        # 获取该行所有需要调整的字符信息（竖线"│"或下角标字符"┘"）
+        # 按位置从左到右排序，只处理第一个（最左边）错位的字符
         line_targets = sorted(targets[idx], key=lambda x: x[0])  # 从左到右排序
         
         if args.debug:
+            char_types = [target[7] if len(target) > 7 else '│' for target in line_targets]
             print(f"[Line {idx+1}] original: {repr(line)}")
-            print(f"  Found {len(line_targets)} pipes, will find the first misaligned one")
+            print(f"  Found {len(line_targets)} items ({', '.join(set(char_types))}), will find the first misaligned one")
         
         if not line_targets:
             aligned.append(line)
             continue
         
-        # 找到第一个（最左边的）需要调整的竖线（display_pos != target_col）
+        # 找到第一个（最左边的）需要调整的字符（display_pos != target_col）
         first_misaligned = None
         for target in line_targets:
-            char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx = target
+            if len(target) > 7:
+                char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx, char_type = target
+            else:
+                # 兼容旧格式（只有竖线）
+                char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx = target
+                char_type = '│'
             if display_pos != target_col:
                 first_misaligned = target
                 break
         
-        # 如果没有找到需要调整的竖线，说明都已对齐，直接保留原行
+        # 如果没有找到需要调整的字符，说明都已对齐，直接保留原行
         if first_misaligned is None:
             aligned.append(line)
             continue
         
-        # 找到需要调整的竖线，标记有变化
+        # 找到需要调整的字符，标记有变化
         has_changes = True
         
-        char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx = first_misaligned
+        if len(first_misaligned) > 7:
+            char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx, char_type = first_misaligned
+        else:
+            # 兼容旧格式
+            char_idx, display_pos, target_col, distance, source, target_line_idx, target_char_idx = first_misaligned
+            char_type = '│'
         
         # 计算需要调整的显示位置差值
         display_diff = target_col - display_pos
         
         if args.debug:
-            print(f"  First misaligned pipe at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col}")
+            print(f"  First misaligned {char_type} at char_idx {char_idx} (display_col {display_pos}) -> target ┐/┌ at col {target_col}")
             print(f"    needed delta: {display_diff}")
         
-        # 只调整第一个竖线，后续竖线会因为这次调整而相应变化
-        current_line, offset = adjust_line_for_pipe(line, char_idx, display_diff)
+        # 调整第一个字符（竖线"│"或下角标字符"┘"），后续字符会因为这次调整而相应变化
+        if char_type == '┘':
+            # 对于"┘"字符，使用与竖线相同的调整逻辑
+            current_line, offset = adjust_line_for_pipe(line, char_idx, display_diff)
+        else:
+            # 对于竖线"│"
+            current_line, offset = adjust_line_for_pipe(line, char_idx, display_diff)
         
         # 检查行是否真的改变了
         if current_line == line and display_diff < 0:
@@ -364,8 +457,47 @@ def align_lines_one_round(lines, targets, round_num=1):
                     target_line = lines[target_line_idx]
                 
                 spaces_to_insert = -display_diff  # 需要右移的距离
-                # 在目标角字符前插入"━"
+                
+                # 检查 target_char_idx 是否在有效范围内
+                if target_char_idx >= len(target_line):
+                    if args.debug:
+                        print(f"    Warning: target_char_idx {target_char_idx} out of range for line {target_line_idx+1} (length {len(target_line)}), skipping target adjustment")
+                    has_changes = False
+                    aligned.append(current_line)
+                    continue
+                
+                target_corner_char = target_line[target_char_idx]
+                
+                # 在目标角字符前插入"─"
                 new_target_line = target_line[:target_char_idx] + "─" * spaces_to_insert + target_line[target_char_idx:]
+                
+                # 在对应的 bottom_line 中查找配对的角字符（┐配对┘，┌配对└）
+                # 使用当前 lines 或 aligned 的状态来查找
+                # search_lines = aligned if target_line_idx < len(aligned) else lines
+                search_lines = lines
+                bottom_line_idx, paired_corner_idx = find_paired_corner_in_bottom_line(
+                    search_lines, target_line_idx, target_corner_char, target_char_idx
+                )
+                
+                if bottom_line_idx is not None and paired_corner_idx is not None:
+                    # 找到配对的角字符，也需要在它前面插入相同数量的"─"
+                    # 获取 bottom_line 的当前状态
+                    if bottom_line_idx < len(aligned):
+                        bottom_line = aligned[bottom_line_idx]
+                    else:
+                        bottom_line = lines[bottom_line_idx]
+                    
+                    # 在配对角字符前插入"─"
+                    new_bottom_line = bottom_line[:paired_corner_idx] + "─" * spaces_to_insert + bottom_line[paired_corner_idx:]
+                    
+                    # 更新 bottom_line
+                    if bottom_line_idx < len(aligned):
+                        aligned[bottom_line_idx] = new_bottom_line
+                    else:
+                        lines[bottom_line_idx] = new_bottom_line
+                    
+                    if args.debug:
+                        print(f"    Found paired corner '{bottom_line[paired_corner_idx]}' in bottom_line {bottom_line_idx+1} at position {paired_corner_idx}, also adjusted")
                 
                 if target_line_idx < len(aligned):
                     # 目标行已经处理过，直接更新 aligned
@@ -375,7 +507,7 @@ def align_lines_one_round(lines, targets, round_num=1):
                     lines[target_line_idx] = new_target_line
                 
                 if args.debug:
-                    print(f"    Adjusted target corner position by inserting {spaces_to_insert} spaces")
+                    print(f"    Adjusted target corner position by inserting {spaces_to_insert} '─' characters")
                     print(f"    Target line {target_line_idx+1} updated: {repr(new_target_line)}")
             else:
                 # 无法调整目标位置，跳过这一行
